@@ -50,6 +50,21 @@ def kids(e):
     return [c for c in e if c.tag not in SKIP]
 
 
+def read_symbol(text):
+    """Racket symbol syntax: `|...|` quotes, and outside it `\\x` is a literal `x`."""
+    out = []
+    quoted = False
+    chars = iter(text)
+    for c in chars:
+        if c == "|":
+            quoted = not quoted
+        elif c == "\\" and not quoted:
+            out.append(next(chars, ""))
+        else:
+            out.append(c)
+    return "".join(out)
+
+
 def conv(e):
     tag = e.tag
     if tag == "source_file":
@@ -107,7 +122,7 @@ def conv(e):
             return "str"
         if inner.startswith("#") and not inner.startswith("#%"):
             return "?" + inner
-        return prefix + inner.strip("|").replace("\\", "")
+        return prefix + read_symbol(inner)
     if tag in ATOMS:
         return ATOMS[tag]
     return f"?{tag}"

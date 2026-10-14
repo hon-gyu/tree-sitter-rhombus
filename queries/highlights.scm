@@ -150,6 +150,8 @@
 [
   (comment)
   (group_comment)
+  (alternative_comment)
+  (line_continuation)
 ] @comment
 
 (lang_line) @keyword.directive
