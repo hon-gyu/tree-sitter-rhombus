@@ -1,0 +1,24 @@
+# Devenv
+.devenv*
+devenv.local.nix
+devenv.local.yaml
+
+# direnv
+.direnv
+
+# Python
+__pycache__/
+
+# Racket
+compiled/
+
+# Tree-sitter build outputs
+build/
+target/
+node_modules/
+*.dylib
+*.so
+*.dll
+*.wasm
+*.a
+*.o

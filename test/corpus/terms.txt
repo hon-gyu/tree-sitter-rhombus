@@ -1,0 +1,195 @@
+============================================================
+Quotes
+============================================================
+
+'$x + 1'
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (quotes
+      (group
+        (operator)
+        (identifier)
+        (operator)
+        (number)))))
+
+============================================================
+Quote with guillemets
+============================================================
+
+'«def x = 1
+  x»'
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (quotes
+      (group
+        (identifier)
+        (identifier)
+        (operator)
+        (number))
+      (group
+        (identifier)))))
+
+============================================================
+Nested quote inside brackets
+============================================================
+
+'f('a')'
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (quotes
+      (group
+        (identifier)
+        (parens
+          (group
+            (quotes
+              (group
+                (identifier)))))))))
+
+============================================================
+Group starting with colon in quotes
+============================================================
+
+': ~gc'
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (quotes
+      (group
+        (block
+          (group
+            (keyword)))))))
+
+============================================================
+Signed numbers
+============================================================
+
+n == -1
+x-1
+x -1
+f(-1)
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (identifier)
+    (operator)
+    (number))
+  (group
+    (identifier)
+    (operator)
+    (number))
+  (group
+    (identifier)
+    (number))
+  (group
+    (identifier)
+    (parens
+      (group
+        (number)))))
+
+============================================================
+Literals
+============================================================
+
+[1, 1.5, 0xFF, 1/2, #inf, "s", #"b", #true, #false, #void, ~kw]
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (brackets
+      (group
+        (number))
+      (group
+        (number))
+      (group
+        (number))
+      (group
+        (number))
+      (group
+        (number))
+      (group
+        (string))
+      (group
+        (byte_string))
+      (group
+        (boolean))
+      (group
+        (boolean))
+      (group
+        (void))
+      (group
+        (keyword)))))
+
+============================================================
+Operators
+============================================================
+
+a :: Int :~ b || c |> d ++ e ...
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (identifier)
+    (operator)
+    (identifier)
+    (operator)
+    (identifier)
+    (operator)
+    (identifier)
+    (operator)
+    (identifier)
+    (operator)
+    (identifier)
+    (operator)))
+
+============================================================
+S-expression escape
+============================================================
+
+rkt.#{pseudo-random-generator?}
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (identifier)
+    (operator)
+    (sexp_escape)))
+
+============================================================
+Comments
+============================================================
+
+#lang rhombus
+// line
+/* block
+   comment */
+#//
+b
+c
+
+------------------------------------------------------------
+
+(source_file
+  (lang_line)
+  (comment)
+  (comment)
+  (group_comment
+    (group
+      (identifier)))
+  (group
+    (identifier)))

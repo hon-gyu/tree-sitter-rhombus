@@ -1,0 +1,328 @@
+============================================================
+Block on following lines
+============================================================
+
+fun f(x):
+  x + 1
+  x
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (identifier)
+    (identifier)
+    (parens
+      (group
+        (identifier)))
+    (block
+      (group
+        (identifier)
+        (operator)
+        (number))
+      (group
+        (identifier)))))
+
+============================================================
+Block on same line
+============================================================
+
+hello: world; universe
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (identifier)
+    (block
+      (group
+        (identifier))
+      (group
+        (identifier)))))
+
+============================================================
+Dedent ends block
+============================================================
+
+a:
+  b
+c
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (identifier)
+    (block
+      (group
+        (identifier))))
+  (group
+    (identifier)))
+
+============================================================
+Nested blocks
+============================================================
+
+a:
+  b:
+    c
+  d
+e
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (identifier)
+    (block
+      (group
+        (identifier)
+        (block
+          (group
+            (identifier))))
+      (group
+        (identifier))))
+  (group
+    (identifier)))
+
+============================================================
+Operator continuation line
+============================================================
+
+f(1) + 2
+  + 3 + 4
+  - 5
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (identifier)
+    (parens
+      (group
+        (number)))
+    (operator)
+    (number)
+    (operator)
+    (number)
+    (operator)
+    (number)
+    (operator)
+    (number)))
+
+============================================================
+Alternatives on new lines
+============================================================
+
+match x
+| 1: "one"
+| _: x + 1
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (identifier)
+    (identifier)
+    (alternatives
+      (alternative
+        (group
+          (number)
+          (block
+            (group
+              (string)))))
+      (alternative
+        (group
+          (identifier)
+          (block
+            (group
+              (identifier)
+              (operator)
+              (number))))))))
+
+============================================================
+Alternatives on one line
+============================================================
+
+hello | world | universe
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (identifier)
+    (alternatives
+      (alternative
+        (group
+          (identifier)))
+      (alternative
+        (group
+          (identifier))))))
+
+============================================================
+Same-line bar ends alternative
+============================================================
+
+x | a: b | c
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (identifier)
+    (alternatives
+      (alternative
+        (group
+          (identifier)
+          (block
+            (group
+              (identifier)))))
+      (alternative
+        (group
+          (identifier))))))
+
+============================================================
+Bar after multi-line block attaches to inner group
+============================================================
+
+x
+| a:
+    b: d | c
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (identifier)
+    (alternatives
+      (alternative
+        (group
+          (identifier)
+          (block
+            (group
+              (identifier)
+              (block
+                (group
+                  (identifier)
+                  (alternatives
+                    (alternative
+                      (group
+                        (identifier)))))))))))))
+
+============================================================
+Bar after colon on same line
+============================================================
+
+a: b | c
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (identifier)
+    (block
+      (group
+        (identifier)
+        (alternatives
+          (alternative
+            (group
+              (identifier))))))))
+
+============================================================
+Empty block before alternatives
+============================================================
+
+cond:
+| a: 1
+| b: 2
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (identifier)
+    (block)
+    (alternatives
+      (alternative
+        (group
+          (identifier)
+          (block
+            (group
+              (number)))))
+      (alternative
+        (group
+          (identifier)
+          (block
+            (group
+              (number))))))))
+
+============================================================
+Guillemet block
+============================================================
+
+hello:« world; universe »
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (identifier)
+    (block
+      (group
+        (identifier))
+      (group
+        (identifier)))))
+
+============================================================
+Backslash continuation
+============================================================
+
+a + \
+  b
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (identifier)
+    (operator)
+    (identifier)))
+
+============================================================
+Comma closes blocks
+============================================================
+
+(hello: world, universe)
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (parens
+      (group
+        (identifier)
+        (block
+          (group
+            (identifier))))
+      (group
+        (identifier)))))
+
+============================================================
+Multi-line brackets
+============================================================
+
+foo(
+  a,
+  b,
+)
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (identifier)
+    (parens
+      (group
+        (identifier))
+      (group
+        (identifier)))))
