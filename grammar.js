@@ -28,13 +28,37 @@ module.exports = grammar({
     $._layout_sep,
     $.operator,
     $._newline_mark,
+    // at-notation
+    $._text_open,
+    $.text,
+    $._text_escape,
+    $._text_close,
+    $.text_comment,
+    $._at_args_open,
+    $._at_command_operator,
+    $._text_lang_line,
+    $.line_continuation,
     $._error_sentinel,
   ],
 
-  extras: $ => [/\s/, $.comment, $.lang_line, /\\/, $._newline_mark],
+  // `line_continuation` is a `\` plus any whitespace and comments up to the
+  // next token, so the scanner sees them as one. A `\` the scanner does not
+  // reach first (one starting a line) is plain whitespace.
+  extras: $ => [/\s/, $.comment, $.lang_line, $.line_continuation, /\\/, $._newline_mark],
 
   rules: {
-    source_file: $ => optional(seq($._block_start, $._groups, $._layout_end)),
+    source_file: $ => choice(
+      optional(seq($._block_start, $._groups, $._layout_end)),
+      $._text_document,
+    ),
+
+    // A `#lang` naming a Scribble language (like `rhombus/scribble/manual`)
+    // reads the whole module body as at-notation text
+    _text_document: $ => seq(
+      alias($._text_lang_line, $.lang_line),
+      repeat(choice($.text, $.at_expression, $.text_comment)),
+      $._text_close,
+    ),
 
     // Group sequences
     // ===============
@@ -127,7 +151,7 @@ module.exports = grammar({
       $.brackets,
       $.braces,
       $.quotes,
-      $.at,
+      $.at_expression,
     ),
 
     parens: $ => seq('(', optional($._bracket_body), ')'),
@@ -146,6 +170,79 @@ module.exports = grammar({
       '\'',
     ),
 
+    // At-notation
+    // -----------
+
+    // `@command(arg, ...){text}...`, where each part is optional. The scanner
+    // enforces that no space separates the parts.
+    at_expression: $ => prec.right(seq(
+      choice('@', alias($._text_escape, '@')),
+      choice(
+        $._at_splice,
+        seq(
+          field('command', $._at_command),
+          optional(field('arguments', $.at_arguments)),
+          repeat(field('text', $.text_block)),
+        ),
+        repeat1(field('text', $.text_block)),
+      ),
+    )),
+
+    // `@(«group»)` splices the group as-is
+    _at_splice: $ => seq(
+      alias(token.immediate(/\(\s*«/), '(«'),
+      optional(seq($._splice_start, $._groups, $._layout_end)),
+      alias(/»\s*\)/, '»)'),
+    ),
+
+    _at_command: $ => choice(
+      $.identifier,
+      $.keyword,
+      $.operator,
+      $.number,
+      $.string,
+      $.byte_string,
+      $.boolean,
+      $.void,
+      $.sexp_escape,
+      $.parens,
+      $.brackets,
+      $.quotes,
+      $.at_command,
+    ),
+
+    // A multi-part command: `«term ...»`, or `a.b.c` with no spaces
+    at_command: $ => choice(
+      seq('«', optional(seq($._splice_start, $._groups, $._layout_end)), '»'),
+      seq(
+        $.identifier,
+        repeat1(seq(
+          alias($._at_command_operator, $.operator),
+          alias(token.immediate(/(#%)?[\p{L}_][\p{L}\p{N}_]*/), $.identifier),
+        )),
+      ),
+    ),
+
+    // Arguments may be separated by newlines instead of `,`
+    at_arguments: $ => seq(
+      alias($._at_args_open, '('),
+      optional(seq(
+        $._bracket_start,
+        $._group_item,
+        repeat(seq(choice(',', $._layout_sep), $._group_item)),
+        optional(','),
+        $._layout_end,
+      )),
+      ')',
+    ),
+
+    // `{...}` or `|<<{...}>>|`, with `@` (or `|<<@`) escapes
+    text_block: $ => seq(
+      $._text_open,
+      repeat(choice($.text, $.at_expression, $.text_comment)),
+      $._text_close,
+    ),
+
     // Atoms
     // -----
 
@@ -159,6 +256,7 @@ module.exports = grammar({
       /[+-]?0o[0-7_]*[0-7]/,
       /[+-]?0b[01_]*[01]/,
       /[+-]?\d[\d_]*(\.\d[\d_]*)?([eE][+-]?\d+)?/,
+      /[+-]?\.\d[\d_]*([eE][+-]?\d+)?/,
       // a fraction's denominator must be nonzero: `1/0` is `1 / 0`
       /[+-]?\d[\d_]*\/[\d_]*[1-9][\d_]*/,
       '#inf',
@@ -178,13 +276,11 @@ module.exports = grammar({
     // braces are not balanced yet
     sexp_escape: _ => /~?#\{[^}]*\}/,
 
-    // Placeholder until at-notation is parsed properly
-    at: _ => '@',
-
     comment: _ => token(choice(
       /\/\/[^\n]*/,
       /\/\*[^*]*\*+([^/*][^*]*\*+)*\//,
       /#![^\n]*/,
+      /@\/\/[^\n]*/,
     )),
 
     lang_line: _ => /#lang[^\n]*/,

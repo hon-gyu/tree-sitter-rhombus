@@ -286,6 +286,7 @@ a + \
   (group
     (identifier)
     (operator)
+    (line_continuation)
     (identifier)))
 
 ============================================================
@@ -326,3 +327,142 @@ foo(
         (identifier))
       (group
         (identifier)))))
+
+============================================================
+Bar after multi-line parens ends alternative
+============================================================
+
+pick | one (
+    b
+  ) then | two
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (identifier)
+    (alternatives
+      (alternative
+        (group
+          (identifier)
+          (parens
+            (group
+              (identifier)))
+          (identifier)))
+      (alternative
+        (group
+          (identifier))))))
+
+============================================================
+Blocks inside guillemets ignore newlines
+============================================================
+
+x |« y: a
+  b; c
+  | d »
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (identifier)
+    (alternatives
+      (alternative
+        (group
+          (identifier)
+          (block
+            (group
+              (identifier)
+              (identifier))
+            (group
+              (identifier)
+              (alternatives
+                (alternative
+                  (group
+                    (identifier)))))))))))
+
+============================================================
+Backslash before comment line
+============================================================
+
+this is \
+/* comment */
+the last group
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (identifier)
+    (identifier)
+    (line_continuation)
+    (identifier)
+    (identifier)
+    (identifier)))
+
+============================================================
+Commented-out alternatives
+============================================================
+
+match x
+#//
+| 0: no
+| 1: 'one' #// | 1.5: no
+| 2: 'two'
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (identifier)
+    (identifier)
+    (alternatives
+      (alternative_comment
+        (alternative
+          (group
+            (number)
+            (block
+              (group
+                (identifier))))))
+      (alternative
+        (group
+          (number)
+          (block
+            (group
+              (quotes
+                (group
+                  (identifier)))))))
+      (alternative_comment
+        (alternative
+          (group
+            (number)
+            (block
+              (group
+                (identifier))))))
+      (alternative
+        (group
+          (number)
+          (block
+            (group
+              (quotes
+                (group
+                  (identifier))))))))))
+
+============================================================
+Leading-dot decimals
+============================================================
+
+x * .25
+x.5
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (identifier)
+    (operator)
+    (number))
+  (group
+    (identifier)
+    (operator)
+    (number)))

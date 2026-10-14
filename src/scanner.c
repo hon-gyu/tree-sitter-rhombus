@@ -10,6 +10,12 @@
 //   GUILL    inside `:«...»`, `|«...»` or `;«...»`, where line and column
 //            are ignored
 //   QGUILL   inside `'«...»'`, which is layout-sensitive like QUOTE
+//   TEXT     inside at-notation text `{...}` or `|<<{...}>>|`, which is
+//            lexed as raw text up to an escape (`@` or `|<<@`) or the closer,
+//            or a whole module body under a Scribble `#lang`
+//
+// A BLOCK or ALT opened directly inside GUILL is `free`: like GUILL, it
+// ignores newlines and columns.
 //
 // An ALT also remembers whether it is still on the line where its `|` was:
 // until a newline, another `|` ends the alternative instead of starting
@@ -41,6 +47,15 @@ enum TokenType {
   LAYOUT_SEP,
   OPERATOR,
   NEWLINE_MARK,
+  TEXT_OPEN,
+  TEXT_CONTENT,
+  TEXT_ESCAPE,
+  TEXT_CLOSE,
+  TEXT_COMMENT,
+  AT_ARGS_OPEN,
+  AT_COMMAND_OPERATOR,
+  TEXT_LANG_LINE,
+  LINE_CONTINUATION,
   ERROR_SENTINEL,
 };
 
@@ -51,12 +66,21 @@ typedef enum {
   CTX_QUOTE,
   CTX_GUILL,
   CTX_QGUILL,
+  CTX_TEXT,
 } CtxKind;
+
+#define MAX_DELIM 16
 
 typedef struct {
   uint8_t kind;
   bool same_line;
-  uint16_t col;
+  bool free;
+  uint16_t col;  // for TEXT: nesting depth of balanced openers in the text
+  // For TEXT opened by `|<<{`: `custom` is set and `delim` holds `<<`
+  bool custom;
+  bool document;  // TEXT for a whole module body, which ends only at EOF
+  uint8_t len;
+  char delim[MAX_DELIM];
 } Ctx;
 
 typedef struct {
@@ -112,10 +136,14 @@ static bool closer_matches(Ctx *ctx, int32_t c) {
   }
 }
 
+static Ctx *innermost_delimited(Scanner *s);
+
 static bool push(Scanner *s, TSLexer *lexer, CtxKind kind, uint32_t col, enum TokenType tok) {
+  Ctx *delimited = innermost_delimited(s);
   Ctx ctx = {
     .kind = kind,
     .same_line = kind == CTX_ALT,
+    .free = (kind == CTX_BLOCK || kind == CTX_ALT) && delimited && delimited->kind == CTX_GUILL,
     .col = (uint16_t)(col > UINT16_MAX ? UINT16_MAX : col),
   };
   array_push(&s->stack, ctx);
@@ -150,6 +178,7 @@ typedef struct {
   bool dirty;      // characters were consumed without skipping (comments)
   bool consumed;   // `c` itself has already been consumed (a leading `/`)
   bool eof;
+  bool text_lang;  // a `#lang` for a Scribble language was read and marked
 } Peek;
 
 static void adv(TSLexer *lexer, Peek *p) {
@@ -170,7 +199,9 @@ static void skip_block_comment(TSLexer *lexer) {
   }
 }
 
-static Peek peek_token(TSLexer *lexer) {
+// With `want_lang`, a `#lang` line naming a Scribble language stops the peek
+// with the token end marked after it
+static Peek peek_token(TSLexer *lexer, bool want_lang) {
   Peek p = {0};
   bool backslash = false;
   for (;;) {
@@ -184,11 +215,7 @@ static Peek peek_token(TSLexer *lexer) {
       p.space = true;
       adv(lexer, &p);
     } else if (c == '\n') {
-      if (backslash) {
-        backslash = false;
-      } else {
-        p.newline = true;
-      }
+      if (!backslash) p.newline = true;
       p.space = true;
       adv(lexer, &p);
     } else if (c == '\\') {
@@ -236,8 +263,16 @@ static Peek peek_token(TSLexer *lexer) {
         return p;
       }
       p.dirty = p.space = true;
+      const char *want = "scribble";
+      const char *k = want;
       while (!lexer->eof(lexer) && lexer->lookahead != '\n') {
+        if (*k) k = lexer->lookahead == *k ? k + 1 : (lexer->lookahead == want[0] ? want + 1 : want);
         lexer->advance(lexer, false);
+      }
+      if (want_lang && !*k) {
+        lexer->mark_end(lexer);
+        p.text_lang = true;
+        return p;
       }
     } else {
       p.c = c;
@@ -247,15 +282,51 @@ static Peek peek_token(TSLexer *lexer) {
   }
 }
 
+// Consume `\` and the whitespace and comments after it, up to the next token
+static bool scan_line_continuation(TSLexer *lexer) {
+  lexer->advance(lexer, false);
+  lexer->mark_end(lexer);
+  for (;;) {
+    int32_t c = lexer->lookahead;
+    if (c == ' ' || c == '\t' || c == '\r' || c == '\f' || c == '\v' || c == '\n') {
+      lexer->advance(lexer, false);
+    } else if (c == '/') {
+      lexer->advance(lexer, false);
+      if (lexer->lookahead == '/') {
+        while (!lexer->eof(lexer) && lexer->lookahead != '\n') lexer->advance(lexer, false);
+      } else if (lexer->lookahead == '*') {
+        lexer->advance(lexer, false);
+        skip_block_comment(lexer);
+      } else {
+        break;  // an operator, which the marked end excludes
+      }
+    } else {
+      break;
+    }
+    lexer->mark_end(lexer);
+  }
+  lexer->result_symbol = LINE_CONTINUATION;
+  return true;
+}
+
 // Operators
 // =========
 
 static bool is_digit(int32_t c) { return c >= '0' && c <= '9'; }
 
+static bool is_ident_start(int32_t c) {
+  if (c < 128) return iswalpha(c) || c == '_';
+  return !is_opchar(c) && c != LGUILL && c != RGUILL && iswalpha(c);
+}
+
 // An operator is a run of operator characters that does not contain `//` or
 // `/*`, is not `|`, `:` or `~` alone, and does not end in `:` unless it is all
 // colons. `#` followed by one of `',:;|` is also an operator.
-static bool scan_operator(TSLexer *lexer, Peek *p, bool after_term) {
+//
+// `ident_follows` reports whether an identifier starts right after it, which is
+// how `@a.b.c` commands continue.
+static bool scan_operator(TSLexer *lexer, Peek *p, bool after_term, bool *ident_follows) {
+  *ident_follows = false;
   if (p->dirty || p->eof) return false;
 
   if (p->c == '#') {
@@ -272,9 +343,9 @@ static bool scan_operator(TSLexer *lexer, Peek *p, bool after_term) {
   if (!is_opchar(p->c)) return false;
   if (!p->consumed) lexer->advance(lexer, false);
 
-  // A sign directly before a digit is part of the number, unless the sign
+  // A sign or `.` directly before a digit is part of the number, unless it
   // immediately follows a term (`x-1` is `x - 1`, but `x -1` is `x` and `-1`)
-  if ((p->c == '+' || p->c == '-') && is_digit(lexer->lookahead) &&
+  if ((p->c == '+' || p->c == '-' || p->c == '.') && is_digit(lexer->lookahead) &&
       (p->space || !after_term)) {
     return false;
   }
@@ -293,7 +364,10 @@ static bool scan_operator(TSLexer *lexer, Peek *p, bool after_term) {
     }
 
     int32_t c = lexer->lookahead;
-    if (!is_opchar(c)) break;
+    if (!is_opchar(c)) {
+      *ident_follows = ok && is_ident_start(c);
+      break;
+    }
     lexer->advance(lexer, false);
     if (c == '/' && (lexer->lookahead == '/' || lexer->lookahead == '*')) break;
     if (c != ':') all_colons = false;
@@ -305,6 +379,204 @@ static bool scan_operator(TSLexer *lexer, Peek *p, bool after_term) {
   return marked;
 }
 
+// At-notation text
+// ================
+
+static bool is_delim_char(int32_t c) {
+  return c > ' ' && c < 127 && !iswalnum(c) && c != '{' && c != '@' && c != '_';
+}
+
+static int32_t flip(int32_t c) {
+  switch (c) {
+    case '(': return ')';
+    case ')': return '(';
+    case '[': return ']';
+    case ']': return '[';
+    case '<': return '>';
+    case '>': return '<';
+    default: return c;
+  }
+}
+
+// Lex `{` or `|<<{` and enter text mode
+static bool scan_text_open(Scanner *s, TSLexer *lexer) {
+  Ctx ctx = {.kind = CTX_TEXT};
+  if (lexer->lookahead == '|') {
+    ctx.custom = true;
+    lexer->advance(lexer, false);
+    while (is_delim_char(lexer->lookahead)) {
+      if (ctx.len == MAX_DELIM) return false;
+      ctx.delim[ctx.len++] = (char)lexer->lookahead;
+      lexer->advance(lexer, false);
+    }
+  }
+  if (lexer->lookahead != '{') return false;
+  lexer->advance(lexer, false);
+  lexer->mark_end(lexer);
+  array_push(&s->stack, ctx);
+  lexer->result_symbol = TEXT_OPEN;
+  return true;
+}
+
+// After a `|`, match the `<<` of a custom opener or escape
+static bool match_delim(TSLexer *lexer, Ctx *t) {
+  for (unsigned i = 0; i < t->len; i++) {
+    if (lexer->lookahead != t->delim[i]) return false;
+    lexer->advance(lexer, false);
+  }
+  return true;
+}
+
+// After a `}`, match the `>>|` of a custom closer
+static bool match_closer_rest(TSLexer *lexer, Ctx *t) {
+  if (!t->custom) return true;
+  for (unsigned i = t->len; i > 0; i--) {
+    if (lexer->lookahead != flip(t->delim[i - 1])) return false;
+    lexer->advance(lexer, false);
+  }
+  if (lexer->lookahead != '|') return false;
+  lexer->advance(lexer, false);
+  return true;
+}
+
+// Positioned after an escape: emit it, or a whole `@//...` comment
+static bool finish_escape(TSLexer *lexer) {
+  lexer->mark_end(lexer);
+  lexer->result_symbol = TEXT_ESCAPE;
+  if (lexer->lookahead != '/') return true;
+  lexer->advance(lexer, false);
+  if (lexer->lookahead != '/') return true;
+  lexer->advance(lexer, false);
+
+  // `@//{...}` or `@//|<<{...}>>|` comments out balanced text
+  Ctx text = {.kind = CTX_TEXT};
+  bool braced = lexer->lookahead == '{';
+  if (lexer->lookahead == '|') {
+    text.custom = true;
+    lexer->advance(lexer, false);
+    while (is_delim_char(lexer->lookahead) && text.len < MAX_DELIM) {
+      text.delim[text.len++] = (char)lexer->lookahead;
+      lexer->advance(lexer, false);
+    }
+    braced = lexer->lookahead == '{';
+  }
+  if (braced) {
+    lexer->advance(lexer, false);
+    unsigned depth = 0;
+    while (!lexer->eof(lexer)) {
+      int32_t c = lexer->lookahead;
+      lexer->advance(lexer, false);
+      if (c == '}' && match_closer_rest(lexer, &text)) {
+        if (depth == 0) break;
+        depth--;
+      } else if (text.custom ? c == '|' && match_delim(lexer, &text) && lexer->lookahead == '{'
+                             : c == '{') {
+        if (text.custom) lexer->advance(lexer, false);
+        depth++;
+      }
+    }
+  } else {
+    // `@//...` comments out the rest of the line, its newline, and the next
+    // line's indentation
+    while (!lexer->eof(lexer) && lexer->lookahead != '\n') lexer->advance(lexer, false);
+    if (lexer->lookahead == '\n') lexer->advance(lexer, false);
+    while (lexer->lookahead == ' ' || lexer->lookahead == '\t') lexer->advance(lexer, false);
+  }
+  lexer->mark_end(lexer);
+  lexer->result_symbol = TEXT_COMMENT;
+  return true;
+}
+
+// Inside text, whitespace is content, so nothing is skipped
+static bool scan_text(Scanner *s, TSLexer *lexer, const bool *valid) {
+  Ctx *t = top(s);
+  if (lexer->eof(lexer) && !t->document) return false;
+  int32_t c = lexer->lookahead;
+  bool any = false;
+
+  // Parts of an escape `@command(args){text}` directly after the command
+  if (valid[AT_ARGS_OPEN] && c == '(') {
+    lexer->advance(lexer, false);
+    lexer->mark_end(lexer);
+    lexer->result_symbol = AT_ARGS_OPEN;
+    return true;
+  }
+  if (valid[TEXT_OPEN] && (c == '{' || (c == '|' && !t->custom))) {
+    if (scan_text_open(s, lexer)) return true;
+    any = true;
+    lexer->mark_end(lexer);
+  } else if (valid[AT_COMMAND_OPERATOR] && is_opchar(c) && !(t->custom && c == '|')) {
+    Peek p = {.c = c};
+    bool ident;
+    if (scan_operator(lexer, &p, true, &ident) && ident) {
+      lexer->result_symbol = AT_COMMAND_OPERATOR;
+      return true;
+    }
+    any = true;
+    lexer->mark_end(lexer);
+  }
+
+  uint16_t depth = t->col;
+  while (!lexer->eof(lexer)) {
+    c = lexer->lookahead;
+
+    if (c == '}' && t->document && depth == 0) {
+      lexer->advance(lexer, false);
+      any = true;
+      lexer->mark_end(lexer);
+      continue;
+    }
+
+    if (c == '}') {
+      lexer->advance(lexer, false);
+      if (match_closer_rest(lexer, t)) {
+        if (depth == 0) {
+          if (any) break;
+          lexer->mark_end(lexer);
+          array_pop(&s->stack);
+          lexer->result_symbol = TEXT_CLOSE;
+          return true;
+        }
+        depth--;
+      }
+      any = true;
+      lexer->mark_end(lexer);
+      continue;
+    }
+
+    if (t->custom ? c == '|' : (c == '@' || c == '{')) {
+      lexer->advance(lexer, false);
+      int32_t next = t->custom ? (match_delim(lexer, t) ? lexer->lookahead : 0) : c;
+      if (next == '@') {
+        if (any) break;
+        if (t->custom) lexer->advance(lexer, false);
+        return finish_escape(lexer);
+      }
+      if (next == '{') {
+        if (t->custom) lexer->advance(lexer, false);
+        depth++;
+      }
+      any = true;
+      lexer->mark_end(lexer);
+      continue;
+    }
+
+    lexer->advance(lexer, false);
+    any = true;
+    lexer->mark_end(lexer);
+  }
+
+  if (!any && t->document && lexer->eof(lexer) && valid[TEXT_CLOSE]) {
+    array_pop(&s->stack);
+    lexer->result_symbol = TEXT_CLOSE;
+    return true;
+  }
+  if (!any || !valid[TEXT_CONTENT]) return false;
+  t->col = depth;
+  lexer->result_symbol = TEXT_CONTENT;
+  return true;
+}
+
 // Main entry
 // ==========
 
@@ -312,10 +584,49 @@ static bool scan(Scanner *s, TSLexer *lexer, const bool *valid) {
   if (valid[ERROR_SENTINEL]) return false;
 
   lexer->mark_end(lexer);
-  Peek p = peek_token(lexer);
   Ctx *ctx = top(s);
+  if (ctx && ctx->kind == CTX_TEXT && (valid[TEXT_CONTENT] || valid[TEXT_CLOSE])) {
+    return scan_text(s, lexer, valid);
+  }
+
+  // Spaces before a `\` are skipped so the continuation token starts at it;
+  // other tokens are unaffected by where on the line they start
+  bool space = false;
+  while (lexer->lookahead == ' ' || lexer->lookahead == '\t') {
+    lexer->advance(lexer, true);
+    space = true;
+  }
+  if (lexer->lookahead == '\\' && valid[LINE_CONTINUATION]) {
+    return scan_line_continuation(lexer);
+  }
+  lexer->mark_end(lexer);
+
+  Peek p = peek_token(lexer, valid[TEXT_LANG_LINE]);
+  p.space |= space;
+  // Inside `«»` newlines are just whitespace
+  if (ctx && (ctx->kind == CTX_GUILL || ctx->free)) p.newline = false;
+  if (p.text_lang) {
+    Ctx doc = {.kind = CTX_TEXT, .document = true};
+    array_push(&s->stack, doc);
+    lexer->result_symbol = TEXT_LANG_LINE;
+    return true;
+  }
   Ctx *delimited = innermost_delimited(s);
   bool quote_closer = p.c == '\'' && delimited && delimited->kind == CTX_QUOTE;
+
+  // At-notation parts that must directly follow `@` or the command
+  if (!p.space && !p.eof && !p.consumed) {
+    if (valid[TEXT_OPEN] && (p.c == '{' || p.c == '|')) {
+      if (scan_text_open(s, lexer)) return true;
+      if (p.c == '|') return false;
+    }
+    if (valid[AT_ARGS_OPEN] && p.c == '(') {
+      lexer->advance(lexer, false);
+      lexer->mark_end(lexer);
+      lexer->result_symbol = AT_ARGS_OPEN;
+      return true;
+    }
+  }
 
   // A lone `|` (not part of an operator like `||` or `|>`)
   bool bar = false;
@@ -325,10 +636,39 @@ static bool scan(Scanner *s, TSLexer *lexer, const bool *valid) {
     bar = !is_opchar(lexer->lookahead);
   }
 
+  // `#//` commenting out an alternative acts like that alternative's `|`. On
+  // its own line, `#//` does not count for indentation, so the `|` sets it.
+  if (p.c == '#' && p.consumed && lexer->lookahead == '/') {
+    lexer->advance(lexer, false);
+    if (lexer->lookahead == '/') {
+      lexer->advance(lexer, false);
+      bool newline = false;
+      while (iswspace(lexer->lookahead) && !lexer->eof(lexer)) {
+        if (lexer->lookahead == '\n') newline = true;
+        lexer->advance(lexer, false);
+      }
+      if (lexer->lookahead == '|') {
+        uint32_t col = lexer->get_column(lexer);
+        lexer->advance(lexer, false);
+        if (!is_opchar(lexer->lookahead)) {
+          bar = true;
+          if (newline) p.col = col;
+        }
+      }
+    }
+  }
+
   // Leaving the line of open alternatives
   // -------------------------------------
 
-  if (valid[NEWLINE_MARK] && p.newline) {
+  // A newline inside brackets does not end the line of an alternative. So the
+  // mark waits while a sequence is being opened (the newline may belong to the
+  // new context), and is skipped before a closer (the newline belonged to the
+  // context being closed)
+  bool opening = valid[BLOCK_START] || valid[ALT_START] || valid[BRACKET_START] ||
+                 valid[QUOTE_START] || valid[GUILL_START] || valid[SPLICE_START];
+  bool closing = is_closer(p.c) || quote_closer;
+  if (valid[NEWLINE_MARK] && p.newline && !opening && !closing) {
     bool marked = false;
     for (uint32_t i = s->stack.size; i > 0; i--) {
       Ctx *c = array_get(&s->stack, i - 1);
@@ -399,7 +739,9 @@ static bool scan(Scanner *s, TSLexer *lexer, const bool *valid) {
   // -----------------
 
   if (valid[LAYOUT_SEP] && ctx && p.newline && !p.eof && !bar &&
-      (is_layout(ctx) || ctx->kind == CTX_QUOTE || ctx->kind == CTX_QGUILL) &&
+      // BRACKET only for at-notation arguments, which allow newline separators
+      (is_layout(ctx) || ctx->kind == CTX_QUOTE || ctx->kind == CTX_QGUILL ||
+       ctx->kind == CTX_BRACKET) &&
       p.col == ctx->col) {
     lexer->result_symbol = LAYOUT_SEP;
     return true;
@@ -408,7 +750,16 @@ static bool scan(Scanner *s, TSLexer *lexer, const bool *valid) {
   // Otherwise the next token continues the current group
   // After a term the group may end, so LAYOUT_END is valid; at the start of a
   // group it is not
-  if (valid[OPERATOR] && !bar) return scan_operator(lexer, &p, valid[LAYOUT_END]);
+  if ((valid[OPERATOR] || valid[AT_COMMAND_OPERATOR]) && !bar) {
+    bool ident;
+    if (!scan_operator(lexer, &p, valid[LAYOUT_END], &ident)) return false;
+    if (valid[AT_COMMAND_OPERATOR] && !p.space && ident) {
+      lexer->result_symbol = AT_COMMAND_OPERATOR;
+    } else if (!valid[OPERATOR]) {
+      return false;
+    }
+    return true;
+  }
   return false;
 }
 
@@ -431,11 +782,17 @@ unsigned tree_sitter_rhombus_external_scanner_serialize(void *payload, char *buf
   Scanner *s = payload;
   unsigned n = 0;
   for (uint32_t i = 0; i < s->stack.size; i++) {
-    if (n + 3 > TREE_SITTER_SERIALIZATION_BUFFER_SIZE) break;
     Ctx *ctx = array_get(&s->stack, i);
-    buffer[n++] = (char)(ctx->kind | (ctx->same_line ? 0x80 : 0));
+    unsigned size = 3 + (ctx->kind == CTX_TEXT ? 1 + ctx->len : 0);
+    if (n + size > TREE_SITTER_SERIALIZATION_BUFFER_SIZE) break;
+    buffer[n++] = (char)(ctx->kind | (ctx->same_line ? 0x80 : 0) | (ctx->free ? 0x40 : 0));
     buffer[n++] = (char)(ctx->col & 0xFF);
     buffer[n++] = (char)(ctx->col >> 8);
+    if (ctx->kind == CTX_TEXT) {
+      buffer[n++] = (char)(ctx->len | (ctx->custom ? 0x80 : 0) | (ctx->document ? 0x40 : 0));
+      memcpy(buffer + n, ctx->delim, ctx->len);
+      n += ctx->len;
+    }
   }
   return n;
 }
@@ -443,12 +800,23 @@ unsigned tree_sitter_rhombus_external_scanner_serialize(void *payload, char *buf
 void tree_sitter_rhombus_external_scanner_deserialize(void *payload, const char *buffer, unsigned length) {
   Scanner *s = payload;
   array_clear(&s->stack);
-  for (unsigned i = 0; i + 3 <= length; i += 3) {
+  unsigned i = 0;
+  while (i + 3 <= length) {
     Ctx ctx = {
-      .kind = (uint8_t)buffer[i] & 0x7F,
+      .kind = (uint8_t)buffer[i] & 0x3F,
       .same_line = ((uint8_t)buffer[i] & 0x80) != 0,
+      .free = ((uint8_t)buffer[i] & 0x40) != 0,
       .col = (uint16_t)((uint8_t)buffer[i + 1] | ((uint8_t)buffer[i + 2] << 8)),
     };
+    i += 3;
+    if (ctx.kind == CTX_TEXT && i < length) {
+      ctx.custom = ((uint8_t)buffer[i] & 0x80) != 0;
+      ctx.document = ((uint8_t)buffer[i] & 0x40) != 0;
+      ctx.len = (uint8_t)buffer[i] & 0x3F;
+      i++;
+      memcpy(ctx.delim, buffer + i, ctx.len);
+      i += ctx.len;
+    }
     array_push(&s->stack, ctx);
   }
 }

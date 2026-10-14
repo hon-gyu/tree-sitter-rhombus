@@ -1,0 +1,268 @@
+============================================================
+Text with escapes
+============================================================
+
+@typeset{Write @bold{"hello"} to C:\greet.txt.}
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (at_expression
+      (identifier)
+      (text_block
+        (text)
+        (at_expression
+          (identifier)
+          (text_block
+            (text)))
+        (text)))))
+
+============================================================
+Command with arguments and text
+============================================================
+
+@typeset(~style: bold){Write "hello"}
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (at_expression
+      (identifier)
+      (at_arguments
+        (group
+          (keyword)
+          (block
+            (group
+              (identifier)))))
+      (text_block
+        (text)))))
+
+============================================================
+Multiple text blocks
+============================================================
+
+@url{https://example.com}{"hello"}
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (at_expression
+      (identifier)
+      (text_block
+        (text))
+      (text_block
+        (text)))))
+
+============================================================
+Escape without text
+============================================================
+
+@typeset{Write @get_link(home_page) out...}
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (at_expression
+      (identifier)
+      (text_block
+        (text)
+        (at_expression
+          (identifier)
+          (at_arguments
+            (group
+              (identifier))))
+        (text)))))
+
+============================================================
+Custom delimiters
+============================================================
+
+@typeset|{Example: @bold{"hello"}}|
+@foo|<<{a |<<@b{c} }>>|
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (at_expression
+      (identifier)
+      (text_block
+        (text))))
+  (group
+    (at_expression
+      (identifier)
+      (text_block
+        (text)
+        (at_expression
+          (identifier)
+          (text_block
+            (text)))
+        (text)))))
+
+============================================================
+Dotted command
+============================================================
+
+@a.b.c{x}
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (at_expression
+      (at_command
+        (identifier)
+        (operator)
+        (identifier)
+        (operator)
+        (identifier))
+      (text_block
+        (text)))))
+
+============================================================
+Splice
+============================================================
+
+@(« a b »)
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (at_expression
+      (group
+        (identifier)
+        (identifier)))))
+
+============================================================
+Text only
+============================================================
+
+@{x}
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (at_expression
+      (text_block
+        (text)))))
+
+============================================================
+Multi-line text
+============================================================
+
+@para{
+  First line
+  @emph{second}
+}
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (at_expression
+      (identifier)
+      (text_block
+        (text)
+        (at_expression
+          (identifier)
+          (text_block
+            (text)))
+        (text)))))
+
+============================================================
+Text comments
+============================================================
+
+@f{a @// line comment
+  b @//{block} c}
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (at_expression
+      (identifier)
+      (text_block
+        (text)
+        (text_comment)
+        (text)
+        (text_comment)
+        (text)))))
+
+============================================================
+Arguments separated by newlines
+============================================================
+
+@f(
+  a
+  b
+){x}
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (at_expression
+      (identifier)
+      (at_arguments
+        (group
+          (identifier))
+        (group
+          (identifier)))
+      (text_block
+        (text)))))
+
+============================================================
+Space ends the at-expression
+============================================================
+
+@foo {x}
+@foo (x)
+
+------------------------------------------------------------
+
+(source_file
+  (group
+    (at_expression
+      (identifier))
+    (braces
+      (group
+        (identifier))))
+  (group
+    (at_expression
+      (identifier))
+    (parens
+      (group
+        (identifier)))))
+
+============================================================
+Scribble document
+============================================================
+
+#lang rhombus/scribble/manual
+@title{Hello}
+
+Some @bold{text} here }.
+
+
+------------------------------------------------------------
+
+(source_file
+  (lang_line)
+  (text)
+  (at_expression
+    (identifier)
+    (text_block
+      (text)))
+  (text)
+  (at_expression
+    (identifier)
+    (text_block
+      (text)))
+  (text))

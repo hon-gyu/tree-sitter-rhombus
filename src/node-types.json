@@ -57,6 +57,162 @@
     }
   },
   {
+    "type": "at_arguments",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "group",
+          "named": true
+        },
+        {
+          "type": "group_comment",
+          "named": true
+        },
+        {
+          "type": "splice",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "at_command",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "group",
+          "named": true
+        },
+        {
+          "type": "group_comment",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "operator",
+          "named": true
+        },
+        {
+          "type": "splice",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "at_expression",
+    "named": true,
+    "fields": {
+      "arguments": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "at_arguments",
+            "named": true
+          }
+        ]
+      },
+      "command": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "at_command",
+            "named": true
+          },
+          {
+            "type": "boolean",
+            "named": true
+          },
+          {
+            "type": "brackets",
+            "named": true
+          },
+          {
+            "type": "byte_string",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "keyword",
+            "named": true
+          },
+          {
+            "type": "number",
+            "named": true
+          },
+          {
+            "type": "operator",
+            "named": true
+          },
+          {
+            "type": "parens",
+            "named": true
+          },
+          {
+            "type": "quotes",
+            "named": true
+          },
+          {
+            "type": "sexp_escape",
+            "named": true
+          },
+          {
+            "type": "string",
+            "named": true
+          },
+          {
+            "type": "void",
+            "named": true
+          }
+        ]
+      },
+      "text": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "text_block",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "group",
+          "named": true
+        },
+        {
+          "type": "group_comment",
+          "named": true
+        },
+        {
+          "type": "splice",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "block",
     "named": true,
     "fields": {},
@@ -143,7 +299,7 @@
           "named": true
         },
         {
-          "type": "at",
+          "type": "at_expression",
           "named": true
         },
         {
@@ -276,6 +432,10 @@
       "required": false,
       "types": [
         {
+          "type": "at_expression",
+          "named": true
+        },
+        {
           "type": "group",
           "named": true
         },
@@ -284,7 +444,19 @@
           "named": true
         },
         {
+          "type": "lang_line",
+          "named": true
+        },
+        {
           "type": "splice",
+          "named": true
+        },
+        {
+          "type": "text",
+          "named": true
+        },
+        {
+          "type": "text_comment",
           "named": true
         }
       ]
@@ -314,6 +486,29 @@
     }
   },
   {
+    "type": "text_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "at_expression",
+          "named": true
+        },
+        {
+          "type": "text",
+          "named": true
+        },
+        {
+          "type": "text_comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "#//",
     "named": false
   },
@@ -331,6 +526,10 @@
   },
   {
     "type": "(",
+    "named": false
+  },
+  {
+    "type": "(«",
     "named": false
   },
   {
@@ -354,16 +553,16 @@
     "named": false
   },
   {
+    "type": "@",
+    "named": false
+  },
+  {
     "type": "[",
     "named": false
   },
   {
     "type": "]",
     "named": false
-  },
-  {
-    "type": "at",
-    "named": true
   },
   {
     "type": "byte_string",
@@ -388,6 +587,11 @@
     "extra": true
   },
   {
+    "type": "line_continuation",
+    "named": true,
+    "extra": true
+  },
+  {
     "type": "number",
     "named": true
   },
@@ -401,6 +605,14 @@
   },
   {
     "type": "string",
+    "named": true
+  },
+  {
+    "type": "text",
+    "named": true
+  },
+  {
+    "type": "text_comment",
     "named": true
   },
   {
@@ -425,6 +637,10 @@
   },
   {
     "type": "»",
+    "named": false
+  },
+  {
+    "type": "»)",
     "named": false
   }
 ]

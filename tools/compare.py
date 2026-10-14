@@ -11,7 +11,7 @@ import sys
 import xml.etree.ElementTree as ET
 
 sys.path.insert(0, os.path.dirname(__file__))
-from ts2shrub import conv  # noqa: E402
+import ts2shrub  # noqa: E402
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -35,9 +35,11 @@ def treesitter(files):
     ).stdout
     # the CLI appends a summary after the XML for files with errors
     root = ET.fromstring(out[: out.index("</sources>") + len("</sources>")])
-    return {
-        src.get("name"): conv(next(iter(src))) for src in root.iter("source")
-    }
+    result = {}
+    for src in root.iter("source"):
+        ts2shrub.load(src.get("name"))
+        result[src.get("name")] = ts2shrub.conv(next(iter(src)))
+    return result
 
 
 def first_diff(a, b):

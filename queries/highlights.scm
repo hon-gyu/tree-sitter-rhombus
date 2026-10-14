@@ -37,6 +37,22 @@
   (identifier) @variable
   (#any-of? @_def "def" "let"))
 
+; At-notation
+; ===========
+
+(at_expression
+  "@" @punctuation.special)
+
+(at_expression
+  command: (identifier) @function.call)
+
+(at_command
+  (identifier) @function.call .)
+
+(text) @string
+
+(text_comment) @comment
+
 ; Keywords
 ; ========
 
@@ -127,8 +143,6 @@
   ":"
   "|"
 ] @punctuation.delimiter
-
-(at) @punctuation.special
 
 ; Comments
 ; ========
